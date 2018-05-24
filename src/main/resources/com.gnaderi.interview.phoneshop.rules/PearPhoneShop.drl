@@ -1,0 +1,105 @@
+
+package com.gnaderi.interview.phoneshop.rules
+import com.gnaderi.interview.phoneshop.entity.Product
+import com.gnaderi.interview.phoneshop.entity.ProductType
+import com.gnaderi.interview.phoneshop.outbound.Invoice
+import com.gnaderi.interview.phoneshop.outbound.Item
+import java.util.ArrayList;
+import java.util.List
+
+//"FREE SIM", "One SIM Card is added for free for each myPhone sold"
+//"SIM PROMOTION", "SIM cards sold on their own (not with the phone) are “Buy One Get One Free"
+//"INSURANCE DISCOUNT", "Insurance is discounted 25% if you buy any type of phone"
+//"Phone CASE 4FOR3", "There is a “4 for 3” offer on Phone Cases"
+//"SIM MAX LIMIT", "The law prevents anyone buying more than 10 SIM cards in a single purchase"
+//"VAT EXEMPT", "a 14% VAT is added to all purchases, BUT insurance productEntities are exempt"
+
+/*
+1	Phone
+2	Phone Insurance
+3	Phone Case
+4	SIM Card
+*/
+
+ rule "FREE SIM"
+ when
+     $invoice:Invoice()
+     $phoneCount: Long( intValue>=1) from accumulate( $item:Item(getProductTypeId()==1) from $invoice.getItems(),count())
+ then
+  for (Item item : $invoice.getItems()) {
+      if(item.getProductTypeId()==4){
+          if($phoneCount>0){
+              item.setAmount(0.0);
+              $phoneCount--;
+          }
+      }
+  }
+  insert($invoice);
+ end
+
+
+
+ rule "SIM PROMOTION"
+ when
+     $invoice:Invoice()
+     $simCount: Long( intValue>1) from accumulate( $item:Item(getProductTypeId()==4&&Math.round(getAmount())!=0) from $invoice.getItems(),count())
+ then
+  $simCount= $simCount/2;
+  for (Item item : $invoice.getItems()) {
+      if(item.getProductTypeId()==4){
+          if($simCount>0&&Math.round(item.getAmount())!=0){
+              item.setAmount(0.0);
+              $simCount--;
+          }
+      }
+  }
+  insert($invoice);
+ end
+
+
+ rule "INSURANCE DISCOUNT"
+ when
+     $invoice:Invoice()
+      $phoneCount: Long() from accumulate( $item:Item(getProductTypeId()==1) from $invoice.getItems(),count())
+      $insurancePrd: Item(getProductTypeId()==2&&$phoneCount>0)  from $invoice.getItems()
+ then
+  $insurancePrd.setAmount($insurancePrd.getAmount()-($insurancePrd.getAmount()/4));
+  insert($invoice);
+ end
+
+
+
+ rule "Phone CASE 4FOR3"
+ when
+         $invoice:Invoice()
+        $caseCount: Long( intValue>3) from accumulate( $item:Item(getProductTypeId()==3) from $invoice.getItems(),count())
+ then
+     Long i=$caseCount/4;
+    for (Item e : $invoice.getItems()) {
+        if(e.getProductTypeId()==3){
+           e.setAmount(0.0);
+           i--;
+            if(i==0){
+              break;
+            }
+        }
+    }
+   insert($invoice);
+ end
+
+ rule "SIM MAX LIMIT"
+ when
+         $invoice:Invoice()
+        $simCount: Number( intValue>10) from accumulate( $item:Item(getProductTypeId()==4) from $invoice.getItems(),count())
+ then
+  $invoice.addError("SIM MAX LIMIT:The law prevents anyone buying more than 10 SIM cards in a single purchase.");
+ end
+
+ rule "VAT EXEMPT"
+     when
+         $invoice:Invoice()
+         $item:Item(getProductTypeId()!=2) from $invoice.getItems()
+     then
+            $item.setTax(Math.round($item.getAmount()*14)/100.0);
+            insert($item);
+ end
